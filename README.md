@@ -5,8 +5,8 @@
 
 ## 快速啟動
 
-雙擊 **`start.cmd`**（或 `npm start`）。腳本會自行提權，依序拉起 tunneld、bridge、
-Web UI，並開啟瀏覽器。**關掉那個視窗，三個服務全部一起停**。
+雙擊 **`start.cmd`**（或 `npm start`）。腳本會先檢查依賴（缺的自動裝），自行提權，
+依序拉起 tunneld、bridge、Web UI，並開啟瀏覽器。**關掉那個視窗，三個服務全部一起停**。
 
 ## 架構
 
@@ -46,6 +46,17 @@ job 上，父行程一消失（正常結束、Ctrl+C、被強制終止都算）�
 > `start.ps1` 必須存成 **UTF-8 with BOM**。Windows PowerShell 5.1 在沒有 BOM 時會以
 > 系統 ANSI codepage 讀檔，中文字會被拆成無效位元組而產生假的語法錯誤。
 
+### 為什麼依賴檢查在提權之前
+
+`python` 通常裝在呼叫者的 profile 底下，提權後可能是另一個 admin 帳號而看不到；
+`node_modules` 若由提權 session 寫入，擁有者也會變成別的帳號。所以檢查與安裝都在
+提權前、以原使用者身分完成，再用 `-SkipDepCheck` 讓提權後的那次不重跑。
+
+npm 的部分是逐一比對 `package.json` 的 `dependencies` 有沒有對應的 `node_modules`
+子目錄，比單看 `node_modules` 存不存在更能抓到「裝一半」的狀態；Python 的部分用
+`importlib.util.find_spec` 只定位不 import，因為 `pymobiledevice3` 的依賴圖很重。
+依賴齊全時整個檢查約 40ms。
+
 ## 已驗證環境
 
 | 項目 | 值 |
@@ -56,14 +67,17 @@ job 上，父行程一消失（正常結束、Ctrl+C、被強制終止都算）�
 | pymobiledevice3 | 10.1.0 |
 | Node | 24.x |
 
-在 Windows 上**不需要安裝 iTunes**，內建的 Apple Mobile Device 驅動即可讓
-`pymobiledevice3` 透過 usbmux 連上裝置。
-
 iOS 17 以上（含 iOS 26）走 `developer dvt simulate-location`，**不是**頂層那個
 `developer simulate-location`（那個只支援 iOS 16 以下），且必須有 RemoteXPC tunnel。
 後端會依裝置回報的 iOS 版本自動選擇路徑，不需手動切換。
 
 ## 前置需求（僅需做一次）
+
+機器上要有 **Python 3** 與 **Node 24+**。其餘套件不必手動處理 — `start.cmd` 首次執行
+時會自己補上缺少的 npm 套件與 `pymobiledevice3`。
+
+在 Windows 上**不需要安裝 iTunes**，內建的 Apple Mobile Device 驅動即可讓
+`pymobiledevice3` 透過 usbmux 連上裝置。
 
 ### 1. 在 iPhone 上啟用開發者模式 ⚠️ 會重開機
 
@@ -114,7 +128,8 @@ npm start
 
 ### 手動分開啟動
 
-除錯時想個別看 log：
+除錯時想個別看 log。這條路徑不經過 `start.ps1`，**不會自動補依賴** — 先跑過一次
+`start.cmd`，或自己 `npm install` 與 `pip install pymobiledevice3`：
 
 ```bash
 npm run tunnel

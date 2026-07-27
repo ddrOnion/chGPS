@@ -15,7 +15,8 @@
 param(
     [string]$PythonExe,
     [string]$NodeExe,
-    [string]$NpmCmd
+    [string]$NpmCmd,
+    [switch]$SkipDepCheck
 )
 
 $Root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -66,6 +67,74 @@ if ($missing.Count) {
         "請確認它們在 PATH 上，或直接指定：`n  .\start.ps1 -PythonExe C:\path\to\python.exe"
 }
 
+# --- Dependencies (pre-elevation) ------------------------------------------
+# Installed before elevating on purpose: python usually lives in the invoking
+# user's profile, and a node_modules tree written by an elevated session can end
+# up owned by a different account. Both checks are no-ops once satisfied, so the
+# normal path costs one Test-Path sweep plus one short python startup.
+
+function Get-MissingNodePackages {
+    $manifest = Join-Path $Root 'package.json'
+    if (-not (Test-Path $manifest)) { return @() }
+
+    $modules = Join-Path $Root 'node_modules'
+    if (-not (Test-Path $modules)) { return @('node_modules') }
+
+    # Top-level dirs only. A partial tree (interrupted install, deleted folder)
+    # is the case worth catching; npm itself resolves the transitive graph.
+    $deps = (Get-Content $manifest -Raw | ConvertFrom-Json).dependencies
+    if (-not $deps) { return @() }
+
+    @($deps.PSObject.Properties.Name | Where-Object {
+        -not (Test-Path (Join-Path $modules $_))
+    })
+}
+
+function Test-PythonModule {
+    param([string]$Name)
+
+    # find_spec locates the package without importing it — pymobiledevice3 pulls
+    # in a heavy dependency graph, and this check runs on every launch.
+    & $PythonExe -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('$Name') else 1)" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+if (-not $SkipDepCheck) {
+    Push-Location $Root
+    try {
+        $needNode = Get-MissingNodePackages
+        if ($needNode.Count) {
+            Write-Host "缺少 npm 套件（$($needNode -join ', ')），正在安裝..." -ForegroundColor Yellow
+            & $NpmCmd install
+            if ($LASTEXITCODE -ne 0) {
+                Stop-WithMessage "npm install 失敗 (exit $LASTEXITCODE)" `
+                    "請手動在專案目錄執行：`n  npm install"
+            }
+            Write-Host "npm 套件安裝完成" -ForegroundColor Green
+        }
+
+        if (-not (Test-PythonModule 'pymobiledevice3')) {
+            Write-Host "缺少 pymobiledevice3，正在安裝..." -ForegroundColor Yellow
+            & $PythonExe -m pip install pymobiledevice3
+
+            # A system-wide Python (Program Files) is not writable without admin;
+            # --user lands in the profile, which is where we want it anyway.
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "改以 --user 重試..." -ForegroundColor Yellow
+                & $PythonExe -m pip install --user pymobiledevice3
+            }
+
+            if (-not (Test-PythonModule 'pymobiledevice3')) {
+                Stop-WithMessage "pymobiledevice3 安裝失敗" `
+                    "請手動執行：`n  $PythonExe -m pip install pymobiledevice3"
+            }
+            Write-Host "pymobiledevice3 安裝完成" -ForegroundColor Green
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 # --- Elevate ---------------------------------------------------------------
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -77,12 +146,14 @@ if (-not $isAdmin) {
 
     # Hand the resolved paths over — the elevated session may not share this
     # user's PATH, and re-resolving there is exactly what used to fail.
+    # -SkipDepCheck: deps were just handled as the invoking user.
     $argList = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
         '-File', ('"{0}"' -f $PSCommandPath),
         '-PythonExe', ('"{0}"' -f $PythonExe),
         '-NodeExe', ('"{0}"' -f $NodeExe),
-        '-NpmCmd', ('"{0}"' -f $NpmCmd)
+        '-NpmCmd', ('"{0}"' -f $NpmCmd),
+        '-SkipDepCheck'
     )
 
     try {
