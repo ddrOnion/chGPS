@@ -41,6 +41,14 @@ function Stop-WithMessage {
     exit 1
 }
 
+# --- Refresh Path helper ---------------------------------------------------
+
+function Refresh-EnvironmentPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+}
+
 # --- Resolve interpreters (pre-elevation) ----------------------------------
 
 function Resolve-Tool {
@@ -50,6 +58,31 @@ function Resolve-Tool {
 
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+
+    # Common Windows default installation paths fallback
+    $commonPaths = @()
+    if ($Name -eq 'python') {
+        $commonPaths += Get-ChildItem "$env:LocalAppData\Programs\Python\Python3*" -Filter "python.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+        $commonPaths += Get-ChildItem "C:\Program Files\Python3*" -Filter "python.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+        $commonPaths += Get-ChildItem "C:\Python3*" -Filter "python.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+    } elseif ($Name -eq 'node') {
+        $commonPaths += "C:\Program Files\nodejs\node.exe"
+        $commonPaths += "$env:LocalAppData\Programs\nodejs\node.exe"
+    } elseif ($Name -eq 'npm.cmd' -or $Name -eq 'npm') {
+        $commonPaths += "C:\Program Files\nodejs\npm.cmd"
+        $commonPaths += "$env:AppData\npm\npm.cmd"
+    }
+
+    foreach ($p in $commonPaths) {
+        if ($p -and (Test-Path $p)) {
+            $dir = Split-Path -Parent $p
+            if ($env:Path -notlike "*$dir*") {
+                $env:Path = "$dir;$env:Path"
+            }
+            return $p
+        }
+    }
+
     return $null
 }
 
@@ -57,14 +90,72 @@ $PythonExe = Resolve-Tool $PythonExe 'python'
 $NodeExe = Resolve-Tool $NodeExe 'node'
 $NpmCmd = Resolve-Tool $NpmCmd 'npm.cmd'
 
-$missing = @()
-if (-not $PythonExe) { $missing += 'python' }
-if (-not $NodeExe) { $missing += 'node' }
-if (-not $NpmCmd) { $missing += 'npm' }
+# Check missing tools and offer interactive winget installation if needed
+if (-not $PythonExe -or -not $NodeExe -or -not $NpmCmd) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host "   chGPS 執行環境檢查 (Prerequisites Check)" -ForegroundColor Cyan
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  偵測到本機尚未安裝或未在 PATH 中找到以下必要工具：" -ForegroundColor Yellow
+    Write-Host ""
+    if (-not $PythonExe) {
+        Write-Host "    - Python 3  : [未找到]（用於 iPhone 通訊底層 pymobiledevice3）" -ForegroundColor Red
+    } else {
+        Write-Host "    - Python 3  : [就緒] ($PythonExe)" -ForegroundColor Green
+    }
+    if (-not $NodeExe -or -not $NpmCmd) {
+        Write-Host "    - Node.js   : [未找到]（用於 Web UI 與 Backend Bridge）" -ForegroundColor Red
+    } else {
+        Write-Host "    - Node.js   : [就緒] ($NodeExe)" -ForegroundColor Green
+    }
+    Write-Host ""
 
-if ($missing.Count) {
-    Stop-WithMessage "找不到必要工具: $($missing -join ', ')" `
-        "請確認它們在 PATH 上，或直接指定：`n  .\start.ps1 -PythonExe C:\path\to\python.exe"
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+
+    Write-Host "  是否要使用 winget (Windows 套件管理員) 自動下載並安裝缺少的環境？" -ForegroundColor Yellow
+    $ans = Read-Host "  請輸入 [Y/n] (預設 Y)"
+    if ([string]::IsNullOrWhiteSpace($ans)) { $ans = 'Y' }
+
+    if ($ans -match '^[Yy]') {
+        if (-not $wingetCmd) {
+            Write-Host "  ! 系統未安裝 winget，無法自動安裝。" -ForegroundColor Red
+        } else {
+            if (-not $PythonExe) {
+                Write-Host "  [1/2] 正在透過 winget 安裝 Python 3..." -ForegroundColor Yellow
+                & winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
+            }
+            if (-not $NodeExe -or -not $NpmCmd) {
+                Write-Host "  [2/2] 正在透過 winget 安裝 Node.js..." -ForegroundColor Yellow
+                & winget install --id OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements
+            }
+
+            Write-Host "  正在更新環境變數 (Refreshing PATH)..." -ForegroundColor DarkGray
+            Refresh-EnvironmentPath
+
+            # Re-resolve after winget installation
+            $PythonExe = Resolve-Tool $null 'python'
+            $NodeExe = Resolve-Tool $null 'node'
+            $NpmCmd = Resolve-Tool $null 'npm.cmd'
+        }
+    }
+
+    # Re-check after attempt
+    $missing = @()
+    if (-not $PythonExe) { $missing += 'python (Python 3)' }
+    if (-not $NodeExe) { $missing += 'node (Node.js)' }
+    if (-not $NpmCmd) { $missing += 'npm (Node.js Package Manager)' }
+
+    if ($missing.Count) {
+        Stop-WithMessage "缺少必要工具: $($missing -join ', ')" `
+            "請手動下載安裝：`n" + `
+            "  1. Python 3: https://www.python.org/downloads/ (安裝時請務必勾選「Add python.exe to PATH」)`n" + `
+            "  2. Node.js : https://nodejs.org/`n`n" + `
+            "安裝完成後，請雙擊重新執行 start.cmd。"
+    } else {
+        Write-Host "  環境安裝與設定完成！" -ForegroundColor Green
+        Write-Host ""
+    }
 }
 
 # --- Dependencies (pre-elevation) ------------------------------------------
@@ -278,6 +369,23 @@ namespace ChGps {
         return $p
     }
 
+    function Test-Port {
+        param([string]$HostName = '127.0.0.1', [int]$Port = 3000, [int]$TimeoutMs = 80)
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $async = $client.BeginConnect($HostName, $Port, $null, $null)
+            $success = $async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+            if ($success -and $client.Connected) {
+                $client.Close()
+                return $true
+            }
+            $client.Close()
+            return $false
+        } catch {
+            return $false
+        }
+    }
+
     function Wait-Until {
         param([scriptblock]$Test, [int]$TimeoutSec = 60, [System.Diagnostics.Process]$Watch)
 
@@ -286,14 +394,19 @@ namespace ChGps {
             # A child that already died will never pass the test — fail fast.
             if ($Watch -and $Watch.HasExited) { return $false }
             try { if (& $Test) { return $true } } catch { }
-            Start-Sleep -Milliseconds 700
+            Start-Sleep -Milliseconds 150
         }
         return $false
     }
 
     function Test-Http {
-        param([string]$Url, [int]$TimeoutSec = 3)
+        param([string]$Url, [int]$TimeoutSec = 2)
         try {
+            $uri = [System.Uri]$Url
+            # Pre-flight fast socket check to avoid 3s Invoke-WebRequest timeout when port is closed
+            if (-not (Test-Port -HostName $uri.Host -Port $uri.Port -TimeoutMs 80)) {
+                return $false
+            }
             $null = Invoke-WebRequest -Uri $Url -TimeoutSec $TimeoutSec -UseBasicParsing
             return $true
         } catch {
@@ -371,9 +484,14 @@ namespace ChGps {
     # --- 3. dev server -----------------------------------------------------
 
     Write-Host "  [3/3] Web UI (:3000)     ..." -NoNewline
-    $v = Start-Child -Name 'vite' -File $NpmCmd -Arguments @('run', 'dev')
+    $viteBin = Join-Path $Root 'node_modules\vite\bin\vite.js'
+    if (Test-Path $viteBin) {
+        $v = Start-Child -Name 'vite' -File $NodeExe -Arguments @($viteBin)
+    } else {
+        $v = Start-Child -Name 'vite' -File $NpmCmd -Arguments @('run', 'dev')
+    }
 
-    if (Wait-Until { Test-Http 'http://127.0.0.1:3000/' 3 } 60 $v) {
+    if (Wait-Until { Test-Http 'http://127.0.0.1:3000/' 2 } 60 $v) {
         Write-Host " OK" -ForegroundColor Green
     } else {
         Show-Failure 'vite'
@@ -412,7 +530,9 @@ namespace ChGps {
     Write-Host "  關閉此視窗或按 Ctrl+C 會停止所有服務" -ForegroundColor DarkGray
     Write-Host ""
 
-    Start-Process 'http://localhost:3000' | Out-Null
+    # Use explorer.exe to hand the URL to the user-session browser, preventing
+    # Windows elevated Process.Start protocol handler from duplicating browser windows.
+    Start-Process 'explorer.exe' -ArgumentList 'http://localhost:3000'
 
     # --- Supervise ---------------------------------------------------------
     # Job Object handles teardown; this loop only reports a child dying early.

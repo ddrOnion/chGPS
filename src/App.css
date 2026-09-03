@@ -57,7 +57,7 @@
 .locations-list,
 .editor-section,
 .export-section {
-  padding: 16px;
+  padding: 10px 14px;
   border-bottom: 1px solid #e0e0e0;
 }
 
@@ -71,8 +71,8 @@
 .locations-list h2,
 .editor-section h2,
 .export-section h2 {
-  font-size: 16px;
-  margin-bottom: 12px;
+  font-size: 14px;
+  margin-bottom: 8px;
   color: #333;
 }
 
@@ -81,16 +81,16 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .location-item {
-  padding: 12px;
+  padding: 5px 8px;
   background: #f9f9f9;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -108,33 +108,45 @@
 
 .location-info {
   flex: 1;
+  min-width: 0;
+  padding-right: 4px;
 }
 
 .location-info strong {
   display: block;
   color: #333;
-  margin-bottom: 4px;
+  margin-bottom: 1px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.location-info p {
-  font-size: 12px;
+.location-info p,
+.location-info p.coord-text {
+  font-size: 11px;
   color: #666;
-  margin: 2px 0;
+  margin: 0;
   font-family: 'Courier New', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .location-actions {
   display: flex;
-  gap: 6px;
-  margin-left: 8px;
+  gap: 3px;
+  margin-left: 4px;
+  flex-shrink: 0;
 }
 
 .btn-small {
-  padding: 6px 8px;
+  padding: 3px 5px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1.2;
   transition: all 0.2s ease;
   background: white;
   border: 1px solid #ddd;
@@ -184,6 +196,12 @@
   font-size: 14px;
   font-family: 'Courier New', monospace;
   transition: border-color 0.2s ease;
+}
+
+/* The monospace default above is for coordinates; a place name reads better in
+   the UI font. */
+.form-group input[type="text"] {
+  font-family: inherit;
 }
 
 .form-group input:focus {
@@ -401,6 +419,16 @@
 
 .btn-send:hover:not(:disabled) { background: #e8f5e9; border-color: #22a35f; }
 
+/* A tagged point leads with its name; an untagged one keeps the positional
+   label, dimmed so the difference is visible at a glance down the list. */
+.location-info strong.no-tag { color: #999; font-weight: 500; }
+.location-info strong.has-tag { color: #333; }
+
+.applied-banner strong {
+  color: #2a2d5c;
+  font-size: 13px;
+}
+
 .btn-small:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .btn-primary:disabled {
@@ -421,6 +449,36 @@
   width: 100%;
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.search-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-form input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.search-form input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.btn-search {
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 @media (max-width: 1024px) {
@@ -452,4 +510,149 @@
   .locations-list {
     max-height: 150px;
   }
+}
+
+/* ---- Cruise (向西 19km/h 巡航) Styles ---- */
+
+.btn-cruise {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.btn-cruise-start {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  color: white;
+  box-shadow: 0 2px 6px rgba(14, 165, 233, 0.3);
+}
+
+.btn-cruise-start:hover {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(14, 165, 233, 0.4);
+}
+
+.btn-cruise-active {
+  background: linear-gradient(135deg, #f97316 0%, #dc2626 100%);
+  color: white;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+  animation: cruisePulse 1.8s infinite;
+}
+
+.btn-cruise-active:hover {
+  background: linear-gradient(135deg, #ea580c 0%, #b91c1c 100%);
+}
+
+@keyframes cruisePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.cruise-pulse-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #fff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: dotFlash 0.9s infinite alternate;
+}
+
+@keyframes dotFlash {
+  from { opacity: 0.3; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1.2); }
+}
+
+.cruise-status-panel {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-left: 4px solid #0ea5e9;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  animation: toast-in 0.2s ease;
+}
+
+.cruise-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.cruise-status-indicator {
+  color: #0284c7;
+  font-size: 12px;
+}
+
+.cruise-status-speed {
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.cruise-status-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #475569;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+}
+
+.location-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.badge-cruising {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: dotFlash 1.2s infinite alternate;
+}
+
+.cruising-item {
+  border-left: 3px solid #0ea5e9 !important;
+  background: #f0f9ff !important;
+}
+
+.popup-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.btn-cruise-inline {
+  margin-top: 5px;
 }

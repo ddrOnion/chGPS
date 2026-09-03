@@ -73,8 +73,9 @@ iOS 17 以上（含 iOS 26）走 `developer dvt simulate-location`，**不是**�
 
 ## 前置需求（僅需做一次）
 
-機器上要有 **Python 3** 與 **Node 24+**。其餘套件不必手動處理 — `start.cmd` 首次執行
-時會自己補上缺少的 npm 套件與 `pymobiledevice3`。
+首次在新電腦執行 **`start.cmd`** 時，腳本會**自動檢測**本機是否已安裝 **Python 3** 與 **Node.js**。若未安裝，將自動提示並引導透過 Windows `winget` 一鍵完成安裝。安裝後亦會自動補齊 npm 套件與 `pymobiledevice3`。
+
+若選擇手動安裝，請預先安裝 **Python 3**（安裝時需勾選 *Add python.exe to PATH*）與 **Node.js 24+**。
 
 在 Windows 上**不需要安裝 iTunes**，內建的 Apple Mobile Device 驅動即可讓
 `pymobiledevice3` 透過 usbmux 連上裝置。
