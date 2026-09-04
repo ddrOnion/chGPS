@@ -45,13 +45,16 @@
 }
 
 .control-panel {
-  width: 350px;
+  width: clamp(340px, 28vw, 420px);
+  min-width: 320px;
   background: white;
   border-left: 1px solid #e0e0e0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
+  height: 100%;
 }
 
 .locations-list,
@@ -62,7 +65,9 @@
 }
 
 .locations-list {
-  flex: 1;
+  flex: 0 0 auto;
+  min-height: 110px;
+  max-height: 200px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -220,6 +225,10 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
+  min-height: 38px;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .btn-primary:hover {
@@ -252,6 +261,10 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
+  min-height: 38px;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -508,11 +521,164 @@
   }
 
   .locations-list {
-    max-height: 150px;
+    max-height: 140px;
   }
 }
 
-/* ---- Cruise (向西 19km/h 巡航) Styles ---- */
+/* ---- Action Button Row (適應大字型自適應排版) ---- */
+
+.action-button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-button-row button {
+  flex: 1 1 120px;
+  min-width: 110px;
+  min-height: 38px;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+/* ---- Cruise Configuration Blocks ---- */
+
+.cruise-config-block {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.config-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.config-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.config-badge {
+  background: #e2e8f0;
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 12px;
+}
+
+/* 速度切換選項群組 (19, 18.5, 18 km/h) */
+.speed-selector-group {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-speed-option {
+  flex: 1 1 0;
+  padding: 7px 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: white;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-speed-option:hover {
+  background: #f0f9ff;
+  border-color: #0ea5e9;
+  color: #0284c7;
+}
+
+.btn-speed-option.active {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  border-color: #2563eb;
+  color: white;
+  box-shadow: 0 2px 5px rgba(14, 165, 233, 0.35);
+  font-weight: 700;
+}
+
+/* 航向 D-Pad 十字方向盤 */
+.dpad-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.dpad-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.dpad-middle {
+  justify-content: center;
+}
+
+.btn-dpad {
+  min-width: 68px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+}
+
+.btn-dpad:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.btn-dpad.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  border-color: #1d4ed8;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.35);
+  font-weight: 700;
+  transform: scale(1.04);
+}
+
+.dpad-compass-core {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+  user-select: none;
+}
+
+/* ---- Cruise Buttons & Status Panel ---- */
 
 .btn-cruise {
   display: flex;
@@ -528,6 +694,10 @@
   transition: all 0.2s ease;
   width: 100%;
   box-sizing: border-box;
+  flex-shrink: 0;
+  min-height: 42px;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .btn-cruise-start {
@@ -572,6 +742,7 @@
   border-radius: 50%;
   display: inline-block;
   animation: dotFlash 0.9s infinite alternate;
+  flex-shrink: 0;
 }
 
 @keyframes dotFlash {
@@ -584,12 +755,13 @@
   border: 1px solid #cbd5e1;
   border-left: 4px solid #0ea5e9;
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   font-size: 12px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   animation: toast-in 0.2s ease;
+  flex-shrink: 0;
 }
 
 .cruise-status-header {
@@ -601,24 +773,67 @@
 
 .cruise-status-indicator {
   color: #0284c7;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 700;
 }
 
 .cruise-status-speed {
   background: #e0f2fe;
   color: #0369a1;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
   font-size: 11px;
+  font-weight: 700;
 }
 
 .cruise-status-details {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   color: #475569;
   font-size: 11px;
+}
+
+.status-detail-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
   font-family: 'Courier New', monospace;
+}
+
+.status-perturb-line {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.perturb-pill {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.perturb-active {
+  background: #fef08a !important;
+  color: #854d0e !important;
+  border-color: #eab308 !important;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+  font-weight: 700;
+}
+
+.cruise-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px dashed #cbd5e1;
+  text-align: center;
 }
 
 .location-title-row {
@@ -633,7 +848,7 @@
   color: #b45309;
   border: 1px solid #fde68a;
   font-size: 10px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 10px;
   font-weight: 600;
   white-space: nowrap;
@@ -655,4 +870,6 @@
 
 .btn-cruise-inline {
   margin-top: 5px;
+  white-space: normal;
+  line-height: 1.25;
 }

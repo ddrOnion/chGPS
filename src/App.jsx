@@ -60,27 +60,74 @@ function wrapLongitude(lng) {
   return wrapped - 180
 }
 
+const CRUISE_DIRECTIONS = {
+  W: { id: 'W', label: '西', fullLabel: '向西', arrow: '⬅️', keyName: 'ArrowLeft' },
+  E: { id: 'E', label: '東', fullLabel: '向東', arrow: '➡️', keyName: 'ArrowRight' },
+  N: { id: 'N', label: '北', fullLabel: '向北', arrow: '⬆️', keyName: 'ArrowUp' },
+  S: { id: 'S', label: '南', fullLabel: '向南', arrow: '⬇️', keyName: 'ArrowDown' }
+}
+
+const CRUISE_SPEEDS = [19, 18.5, 18]
+
 /**
- * 依指定時速 (km/h) 與更新週期 (秒)，計算向正西方向移動後的經度變化。
+ * 依指定時速 (km/h)、更新週期 (秒)、航向 (N/S/E/W) 與垂直擾動設定，計算單步經緯度位移。
  * 地球平均半徑 R ≈ 6,371,000 公尺。
- * 緯線圈半徑 r = R * cos(lat in radians)。
  */
-function calculateWestStep(lat, lng, speedKmPerHour = 19, intervalSeconds = 2) {
+function calculateCruiseStep(
+  lat,
+  lng,
+  speedKmPerHour = 19,
+  intervalSeconds = 2,
+  direction = 'W',
+  applyPerturbation = false,
+  perturbationSign = 1,
+  perturbationMeters = 5
+) {
   const R = 6371000 // 地球平均半徑 (公尺)
-  const speedMps = (speedKmPerHour * 1000) / 3600 // 19 km/h ≈ 5.27778 m/s
-  const distance = speedMps * intervalSeconds // 每 2 秒前進約 10.5556 公尺
+  const speedMps = (speedKmPerHour * 1000) / 3600
+  const mainDistanceM = speedMps * intervalSeconds
 
   const latRad = (lat * Math.PI) / 180
-  const cosLat = Math.cos(latRad)
+  const cosLat = Math.max(Math.abs(Math.cos(latRad)), 1e-6)
 
-  // 極區保護（若接近南北極，避免除以接近 0 的值）
-  if (Math.abs(cosLat) < 1e-6) {
-    return lng
+  // 1. 主航向位移
+  let deltaLatMain = 0
+  let deltaLngMain = 0
+
+  if (direction === 'W') {
+    deltaLngMain = -((mainDistanceM / (R * cosLat)) * (180 / Math.PI))
+  } else if (direction === 'E') {
+    deltaLngMain = +((mainDistanceM / (R * cosLat)) * (180 / Math.PI))
+  } else if (direction === 'N') {
+    deltaLatMain = +((mainDistanceM / R) * (180 / Math.PI))
+  } else if (direction === 'S') {
+    deltaLatMain = -((mainDistanceM / R) * (180 / Math.PI))
   }
 
-  // 向西經度變化量 (度)
-  const deltaLngDeg = (distance / (R * cosLat)) * (180 / Math.PI)
-  return wrapLongitude(lng - deltaLngDeg)
+  // 2. 每 6 秒觸發的垂直分量擾動 (5 公尺)
+  let deltaLatPerp = 0
+  let deltaLngPerp = 0
+
+  if (applyPerturbation && perturbationMeters > 0) {
+    const perpDist = perturbationSign * perturbationMeters
+    if (direction === 'W' || direction === 'E') {
+      // 主航向為東西，垂直擾動作用於南北 (緯度)
+      deltaLatPerp = (perpDist / R) * (180 / Math.PI)
+    } else {
+      // 主航向為南北，垂直擾動作用於東西 (經度)
+      deltaLngPerp = (perpDist / (R * cosLat)) * (180 / Math.PI)
+    }
+  }
+
+  const nextLat = Math.max(-90, Math.min(90, lat + deltaLatMain + deltaLatPerp))
+  const nextLng = wrapLongitude(lng + deltaLngMain + deltaLngPerp)
+
+  return {
+    lat: nextLat,
+    lng: nextLng,
+    mainDistanceM,
+    perturbed: applyPerturbation
+  }
 }
 
 function MapClick({ onCoordinateSelect }) {
@@ -206,7 +253,9 @@ function App() {
   const [appliedCoord, setAppliedCoord] = useState(null)
   const [isCruising, setIsCruising] = useState(false)
   const [cruisingCoordId, setCruisingCoordId] = useState(null)
-  const [cruiseStats, setCruiseStats] = useState({ count: 0, distanceM: 0 })
+  const [cruiseSpeed, setCruiseSpeed] = useState(19) // 19, 18.5, 18 km/h
+  const [cruiseDirection, setCruiseDirection] = useState('W') // 'W', 'E', 'N', 'S'
+  const [cruiseStats, setCruiseStats] = useState({ count: 0, distanceM: 0, lastPerturbed: false })
 
   const cruiseRef = useRef({
     active: false,
@@ -215,7 +264,9 @@ function App() {
     lng: 0,
     name: '',
     count: 0,
-    distanceM: 0
+    distanceM: 0,
+    speed: 19,
+    direction: 'W'
   })
 
   const { status, loading, refresh } = useDeviceStatus()
@@ -237,6 +288,47 @@ function App() {
     setToast({ type, text })
     setTimeout(() => setToast(null), 5000)
   }
+
+  // 航向切換處理（支援巡航中即時切換）
+  const changeCruiseDirection = useCallback((dir) => {
+    if (!CRUISE_DIRECTIONS[dir]) return
+    setCruiseDirection(dir)
+    cruiseRef.current.direction = dir
+    notify('info', `🧭 航向已切換為：${CRUISE_DIRECTIONS[dir].fullLabel} (${CRUISE_DIRECTIONS[dir].arrow})`)
+  }, [])
+
+  // 速度切換處理（支援巡航中即時切換 19, 18.5, 18 km/h）
+  const changeCruiseSpeed = useCallback((speed) => {
+    setCruiseSpeed(speed)
+    cruiseRef.current.speed = speed
+    notify('info', `⚡ 巡航時速已調整為：${speed} km/h`)
+  }, [])
+
+  // 實體鍵盤方向鍵監聽（ArrowUp / ArrowDown / ArrowLeft / ArrowRight）
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // 避免在文字輸入框打字時誤觸航向變更
+      const tag = e.target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        changeCruiseDirection('N')
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        changeCruiseDirection('S')
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        changeCruiseDirection('W')
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        changeCruiseDirection('E')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [changeCruiseDirection])
 
 /**
  * Reverse geocodes lat/lng via OpenStreetMap Nominatim to find a nearby place or road name.
@@ -383,17 +475,19 @@ async function fetchReverseGeocode(lat, lng) {
     }
   }
 
-  const stopCruise = useCallback((reason = '已停止向西巡航') => {
+  const stopCruise = useCallback((reason = '已停止巡航') => {
     cruiseRef.current.active = false
     setIsCruising(false)
     setCruisingCoordId(null)
+    setCruiseStats((prev) => ({ ...prev, lastPerturbed: false }))
     if (reason) notify('info', reason)
   }, [])
 
   const toggleCruise = () => {
     if (isCruising) {
-      const { distanceM, count } = cruiseRef.current
-      stopCruise(`已取消向西巡航（累計移動約 ${distanceM.toFixed(1)} 公尺，更新 ${count} 次）`)
+      const { distanceM, count, direction, speed } = cruiseRef.current
+      const dirLabel = CRUISE_DIRECTIONS[direction]?.fullLabel || '巡航'
+      stopCruise(`已取消${dirLabel}（累計移動約 ${distanceM.toFixed(1)} 公尺，更新 ${count} 次）`)
       return
     }
 
@@ -416,19 +510,21 @@ async function fetchReverseGeocode(lat, lng) {
       lng,
       name: activeCoord.name?.trim() || '',
       count: 0,
-      distanceM: 0
+      distanceM: 0,
+      speed: cruiseSpeed,
+      direction: cruiseDirection
     }
     setCruisingCoordId(activeCoord.id)
-    setCruiseStats({ count: 0, distanceM: 0 })
+    setCruiseStats({ count: 0, distanceM: 0, lastPerturbed: false })
     setIsCruising(true)
-    notify('success', '🧭 已啟動向西巡航（時速 19 km/h，每 2 秒更新一次）')
+    notify('success', `🧭 已啟動巡航（${CRUISE_DIRECTIONS[cruiseDirection]?.fullLabel || '向西'} ${cruiseSpeed} km/h，每 2 秒更新，每 6 秒 ±5m 垂直擾動）`)
 
     if (status?.ready) {
       sendToDevice(lat, lng, activeCoord.name?.trim())
     }
   }
 
-  // 巡航定時器：每 2 秒向西計算並更新新位置 (19 km/h)
+  // 巡航定時器：每 2 秒依指定航向與時速更新新位置，每 6 秒產生 5 米垂直擾動
   useEffect(() => {
     if (!isCruising) return
 
@@ -436,32 +532,52 @@ async function fetchReverseGeocode(lat, lng) {
       const currentCruise = cruiseRef.current
       if (!currentCruise.active) return
 
-      const { id, lat, lng, name, count, distanceM } = currentCruise
-      const nextLng = calculateWestStep(lat, lng, 19, 2)
-      const stepDistanceM = (19 * 1000 / 3600) * 2 // 10.5556 m
+      const { id, lat, lng, name, count, distanceM, speed, direction } = currentCruise
       const newCount = count + 1
-      const newDistanceM = distanceM + stepDistanceM
+
+      // 每 6 秒 (每 3 步) 產生一次垂直分量 5 公尺擾動 (+5m 與 -5m 交替擺盪)
+      const applyPerturbation = newCount % 3 === 0
+      const perturbationSign = (Math.floor(newCount / 3) % 2 === 1) ? 1 : -1
+
+      const step = calculateCruiseStep(
+        lat,
+        lng,
+        speed || 19,
+        2,
+        direction || 'W',
+        applyPerturbation,
+        perturbationSign,
+        5
+      )
+
+      const newDistanceM = distanceM + step.mainDistanceM
 
       // 更新 ref
-      cruiseRef.current.lng = nextLng
+      cruiseRef.current.lat = step.lat
+      cruiseRef.current.lng = step.lng
       cruiseRef.current.count = newCount
       cruiseRef.current.distanceM = newDistanceM
 
       // 更新巡航統計 state
-      setCruiseStats({ count: newCount, distanceM: newDistanceM })
+      setCruiseStats({
+        count: newCount,
+        distanceM: newDistanceM,
+        lastPerturbed: applyPerturbation
+      })
 
       // 更新座標列表
       setCoordinates((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, lng: nextLng } : c))
+        prev.map((c) => (c.id === id ? { ...c, lat: step.lat, lng: step.lng } : c))
       )
 
-      // 若目前選中編輯的即為該巡航點，同步更新經度輸入框
+      // 若目前選中編輯的即為該巡航點，同步更新經緯度輸入框
       if (activeId === id) {
-        setInputLng(nextLng.toFixed(6))
+        setInputLat(step.lat.toFixed(6))
+        setInputLng(step.lng.toFixed(6))
       }
 
       // 地圖中心跟隨更新
-      setMapCenter([lat, nextLng])
+      setMapCenter([step.lat, step.lng])
 
       // 若 iPhone 已就緒，傳送至裝置
       if (status?.ready) {
@@ -469,14 +585,17 @@ async function fetchReverseGeocode(lat, lng) {
           const res = await fetch('/api/location', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat, lng: nextLng })
+            body: JSON.stringify({ lat: step.lat, lng: step.lng })
           })
           const data = await res.json()
           if (data.ok) {
+            const dirInfo = CRUISE_DIRECTIONS[direction] || CRUISE_DIRECTIONS.W
             setAppliedCoord({
-              lat,
-              lng: nextLng,
-              label: name ? `${name} (向西 19km/h)` : '向西 19km/h 巡航中'
+              lat: step.lat,
+              lng: step.lng,
+              label: name
+                ? `${name} (${dirInfo.fullLabel} ${speed}km/h)`
+                : `巡航中 (${dirInfo.fullLabel} ${speed}km/h)`
             })
           }
         } catch {
@@ -605,6 +724,7 @@ async function fetchReverseGeocode(lat, lng) {
             <Recenter center={mapCenter} />
             {coordinates.map((coord, idx) => {
               const isThisCruising = isCruising && cruisingCoordId === coord.id
+              const curDir = CRUISE_DIRECTIONS[cruiseDirection] || CRUISE_DIRECTIONS.W
               return (
                 <Marker
                   key={coord.id}
@@ -615,7 +735,11 @@ async function fetchReverseGeocode(lat, lng) {
                     <div className="popup-body">
                       <div className="popup-header-row">
                         <strong>{labelOf(coord, idx)}</strong>
-                        {isThisCruising && <span className="badge-cruising">⬅ 19km/h</span>}
+                        {isThisCruising && (
+                          <span className="badge-cruising">
+                            {curDir.arrow} {cruiseSpeed}km/h
+                          </span>
+                        )}
                       </div>
                       <p>Lat: {coord.lat.toFixed(6)}</p>
                       <p>Lng: {coord.lng.toFixed(6)}</p>
@@ -635,7 +759,9 @@ async function fetchReverseGeocode(lat, lng) {
                           toggleCruise()
                         }}
                       >
-                        {isThisCruising ? '⏹️ 取消巡航' : '🧭 向西巡航 (19 km/h)'}
+                        {isThisCruising
+                          ? `⏹️ 取消巡航 (${curDir.arrow} ${cruiseSpeed}km/h)`
+                          : `🧭 啟動${curDir.fullLabel}巡航 (${cruiseSpeed} km/h)`}
                       </button>
                     </div>
                   </Popup>
@@ -687,6 +813,7 @@ async function fetchReverseGeocode(lat, lng) {
               ) : (
                 coordinates.map((coord, idx) => {
                   const isThisCruising = isCruising && cruisingCoordId === coord.id
+                  const curDir = CRUISE_DIRECTIONS[cruiseDirection] || CRUISE_DIRECTIONS.W
                   return (
                     <div
                       key={coord.id}
@@ -698,7 +825,9 @@ async function fetchReverseGeocode(lat, lng) {
                             {labelOf(coord, idx)}
                           </strong>
                           {isThisCruising && (
-                            <span className="badge-cruising">⬅ 19km/h 巡航中</span>
+                            <span className="badge-cruising">
+                              {curDir.arrow} {cruiseSpeed}km/h 巡航中
+                            </span>
                           )}
                         </div>
                         <p className="coord-text">{coord.lat.toFixed(5)}, {coord.lng.toFixed(5)}</p>
@@ -773,20 +902,97 @@ async function fetchReverseGeocode(lat, lng) {
                     />
                   </div>
                 </div>
-                <button className="btn-secondary" onClick={handleUpdateCoordinate}>
-                  更新座標
-                </button>
-                <button
-                  className="btn-primary"
-                  disabled={!deviceReady || sending}
-                  onClick={() => sendToDevice(
-                    parseFloat(inputLat),
-                    parseFloat(inputLng),
-                    activeCoord.name.trim()
-                  )}
-                >
-                  {sending ? '傳送中…' : '📲 傳送到 iPhone'}
-                </button>
+
+                <div className="action-button-row">
+                  <button type="button" className="btn-secondary" onClick={handleUpdateCoordinate}>
+                    更新座標
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={!deviceReady || sending}
+                    onClick={() => sendToDevice(
+                      parseFloat(inputLat),
+                      parseFloat(inputLng),
+                      activeCoord.name.trim()
+                    )}
+                  >
+                    {sending ? '傳送中…' : '📲 傳送到 iPhone'}
+                  </button>
+                </div>
+
+                {/* 速度切換選項：19, 18.5, 18 km/h */}
+                <div className="cruise-config-block">
+                  <div className="config-label-row">
+                    <span className="config-title">⚡ 巡航時速</span>
+                    <span className="config-badge">{cruiseSpeed} km/h</span>
+                  </div>
+                  <div className="speed-selector-group">
+                    {CRUISE_SPEEDS.map((spd) => (
+                      <button
+                        key={spd}
+                        type="button"
+                        className={`btn-speed-option ${cruiseSpeed === spd ? 'active' : ''}`}
+                        onClick={() => changeCruiseSpeed(spd)}
+                      >
+                        {spd} km/h
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 航向控制盤：東西南北 + 方向鍵快捷提示 */}
+                <div className="cruise-config-block">
+                  <div className="config-label-row">
+                    <span className="config-title">🧭 航向設定 (方向鍵 ↑↓←→)</span>
+                    <span className="config-badge">
+                      {CRUISE_DIRECTIONS[cruiseDirection]?.fullLabel} ({cruiseDirection})
+                    </span>
+                  </div>
+                  <div className="dpad-container">
+                    <div className="dpad-row dpad-center">
+                      <button
+                        type="button"
+                        className={`btn-dpad ${cruiseDirection === 'N' ? 'active' : ''}`}
+                        onClick={() => changeCruiseDirection('N')}
+                        title="向北 (鍵盤 ArrowUp)"
+                      >
+                        ⬆️ 北
+                      </button>
+                    </div>
+                    <div className="dpad-row dpad-middle">
+                      <button
+                        type="button"
+                        className={`btn-dpad ${cruiseDirection === 'W' ? 'active' : ''}`}
+                        onClick={() => changeCruiseDirection('W')}
+                        title="向西 (鍵盤 ArrowLeft)"
+                      >
+                        ⬅️ 西
+                      </button>
+                      <div className="dpad-compass-core" title="目前航向">
+                        {CRUISE_DIRECTIONS[cruiseDirection]?.arrow}
+                      </div>
+                      <button
+                        type="button"
+                        className={`btn-dpad ${cruiseDirection === 'E' ? 'active' : ''}`}
+                        onClick={() => changeCruiseDirection('E')}
+                        title="向東 (鍵盤 ArrowRight)"
+                      >
+                        東 ➡️
+                      </button>
+                    </div>
+                    <div className="dpad-row dpad-center">
+                      <button
+                        type="button"
+                        className={`btn-dpad ${cruiseDirection === 'S' ? 'active' : ''}`}
+                        onClick={() => changeCruiseDirection('S')}
+                        title="向南 (鍵盤 ArrowDown)"
+                      >
+                        ⬇️ 南
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
                 <button
                   type="button"
@@ -796,11 +1002,11 @@ async function fetchReverseGeocode(lat, lng) {
                   {isCruising ? (
                     <>
                       <span className="cruise-pulse-dot" />
-                      ⏹️ 取消向西巡航 ({cruiseStats.distanceM.toFixed(0)}m · {cruiseStats.count}次)
+                      ⏹️ 取消巡航 ({CRUISE_DIRECTIONS[cruiseDirection]?.arrow} {cruiseSpeed}km/h · {cruiseStats.distanceM.toFixed(0)}m)
                     </>
                   ) : (
                     <>
-                      🧭 啟動向西巡航 (19 km/h · 每 2 秒更新)
+                      🧭 啟動{CRUISE_DIRECTIONS[cruiseDirection]?.fullLabel}巡航 ({cruiseSpeed} km/h · 每2秒更新)
                     </>
                   )}
                 </button>
@@ -808,13 +1014,29 @@ async function fetchReverseGeocode(lat, lng) {
                 {isCruising && (
                   <div className="cruise-status-panel">
                     <div className="cruise-status-header">
-                      <span className="cruise-status-indicator">● 向西巡航中</span>
-                      <span className="cruise-status-speed">19 km/h</span>
+                      <span className="cruise-status-indicator">
+                        ● {CRUISE_DIRECTIONS[cruiseDirection]?.arrow} {CRUISE_DIRECTIONS[cruiseDirection]?.fullLabel}巡航中
+                      </span>
+                      <span className="cruise-status-speed">{cruiseSpeed} km/h</span>
                     </div>
                     <div className="cruise-status-details">
-                      <span>週期：2 秒一次（約 10.6m）</span>
-                      <span>累計步數：{cruiseStats.count} 次</span>
-                      <span>累計位移：約 {cruiseStats.distanceM.toFixed(1)} 公尺</span>
+                      <div className="status-detail-line">
+                        <span>步進週期：</span>
+                        <span>2 秒一次（約 {((cruiseSpeed * 1000 / 3600) * 2).toFixed(1)}m）</span>
+                      </div>
+                      <div className="status-detail-line">
+                        <span>累計位移：</span>
+                        <span>約 {cruiseStats.distanceM.toFixed(1)} 公尺（更新 {cruiseStats.count} 次）</span>
+                      </div>
+                      <div className="status-detail-line status-perturb-line">
+                        <span>垂直擾動：</span>
+                        <span className={`perturb-pill ${cruiseStats.lastPerturbed ? 'perturb-active' : ''}`}>
+                          ±5m (每 6 秒觸發{cruiseStats.lastPerturbed ? '⚡' : ''})
+                        </span>
+                      </div>
+                    </div>
+                    <div className="cruise-hint">
+                      💡 巡航中隨時按方向鍵 ↑ ↓ ← → 或點擊切換航向
                     </div>
                   </div>
                 )}
